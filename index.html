@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>蓝牙设备控制</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="header">
+    <h1>蓝牙设备控制</h1>
+    <div class="status">
+      <span id="statusDot" class="dot"></span>
+      <span id="statusText">未连接</span>
+      <button id="btnConnect" class="btn-connect" data-action="connect">连接设备</button>
+    </div>
+  </header>
+
+  <main class="main">
+    <!-- 主控按钮区 -->
+    <section class="section">
+      <h2 class="section-title">主控</h2>
+      <div class="main-controls">
+        <button id="btnOpen" class="btn btn-open" disabled>开</button>
+        <button id="btnClose" class="btn btn-close" disabled>关</button>
+        <button id="btnStop" class="btn btn-stop" disabled>停</button>
+      </div>
+    </section>
+
+    <!-- 点动按钮区 -->
+    <section class="section">
+      <h2 class="section-title">点动（长按有效，松开即停）</h2>
+      <div class="momentary-controls">
+        <button id="btnOpening" class="btn btn-momentary btn-opening" disabled>点动开</button>
+        <button id="btnClosing" class="btn btn-momentary btn-closing" disabled>点动关</button>
+      </div>
+      <p class="hint">提示：按住按钮持续动作，松开自动停止。手指滑出按钮也会停止。</p>
+    </section>
+
+    <!-- 日志区 -->
+    <section class="section section-log">
+      <h2 class="section-title">日志</h2>
+      <div id="logArea" class="log-area"></div>
+    </section>
+  </main>
+
+  <!-- 脚本顺序：protocol（无依赖）→ bluetooth（依赖 protocol）→ ui（依赖两者）→ app（入口）-->
+  <script src="js/protocol.js"></script>
+  <script src="js/bluetooth.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

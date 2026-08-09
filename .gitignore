@@ -1,0 +1,22 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Trae
+.trae/cache/
+.trae/logs/
+
+# Node（未来扩展用）
+node_modules/
+
+# 临时文件
+*.log
+*.tmp
+*.bak
