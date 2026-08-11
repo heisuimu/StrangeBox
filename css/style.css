@@ -221,3 +221,255 @@ body {
     flex-direction: column;
   }
 }
+
+/* ============ 设备信息卡片 ============ */
+
+.device-info {
+  background: #fff;
+  border-radius: 8px;
+  padding: 14px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  border-left: 4px solid #2a7;
+}
+
+.dev-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 13px;
+  gap: 12px;
+}
+
+.dev-label {
+  color: #999;
+  flex-shrink: 0;
+}
+
+.dev-value {
+  color: #333;
+  font-family: "Consolas", "Courier New", monospace;
+  text-align: right;
+  word-break: break-all;
+}
+
+/* ============ Modal ============ */
+
+.modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.modal.show {
+  display: flex;
+}
+
+.modal-content {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px 20px;
+  max-width: 420px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 20px;
+  color: #333;
+}
+
+.modal-section {
+  margin-bottom: 20px;
+}
+
+.modal-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 10px;
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+}
+
+.mode-option input[type="radio"] {
+  cursor: pointer;
+  accent-color: #2a7;
+}
+
+.name-input {
+  width: 100%;
+  padding: 8px 12px;
+  margin: 4px 0 8px;
+  border: 1px solid #d0d0d8;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.name-input:focus {
+  outline: none;
+  border-color: #2a7;
+}
+
+.name-input:disabled {
+  background: #f5f5f7;
+  color: #aaa;
+  cursor: not-allowed;
+}
+
+.mode-hint {
+  font-size: 12px;
+  color: #999;
+  margin-top: 8px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  background: #f9f9fb;
+  border-radius: 4px;
+}
+
+.recent-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.recent-header .modal-label {
+  margin-bottom: 0;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #e54;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.link-btn:hover {
+  background: #fee;
+}
+
+.recent-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.recent-empty {
+  font-size: 12px;
+  color: #bbb;
+  text-align: center;
+  padding: 16px;
+  background: #f9f9fb;
+  border-radius: 6px;
+}
+
+.recent-device-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: #f5f5f7;
+  border: 1px solid #e8e8ee;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  font-size: 13px;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+}
+
+.recent-device-item:hover {
+  background: #eef9f3;
+  border-color: #2a7;
+}
+
+.recent-device-item .dev-name {
+  font-weight: 500;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  margin-right: 8px;
+}
+
+.recent-device-item .dev-time {
+  color: #999;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.btn-secondary,
+.btn-primary {
+  flex: 1;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, opacity 0.2s;
+}
+
+.btn-secondary {
+  background: #f0f0f5;
+  color: #555;
+}
+
+.btn-secondary:hover {
+  background: #e4e4ec;
+}
+
+.btn-primary {
+  background: #2a7;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: #1c6;
+}
+
+.btn-primary:disabled,
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 480px) {
+  .modal-content {
+    padding: 20px 16px;
+  }
+  .modal-title {
+    font-size: 16px;
+  }
+}

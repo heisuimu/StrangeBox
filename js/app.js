@@ -19,12 +19,13 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
 
-  btnConnect.addEventListener('click', async () => {
+  btnConnect.addEventListener('click', () => {
     const action = btnConnect.dataset.action || 'connect';
     if (action === 'disconnect') {
       BluetoothController.disconnect();
     } else {
-      await BluetoothController.pickAndConnect();
+      // 打开自定义连接 Modal，让用户选择扫描模式
+      UI.showModal();
     }
   });
 });

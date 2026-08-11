@@ -13,6 +13,15 @@ const NUS_TX_CHARACTERISTIC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // ap
 const NUS_RX_CHARACTERISTIC_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // 外设通知 app
 
 const CONNECT_TIMEOUT_MS = 10000;
+const RECENT_DEVICES_MAX = 5;
+const RECENT_DEVICES_KEY = 'andrawapp_recent_devices';
+
+// 扫描模式枚举
+const ScanMode = Object.freeze({
+  NUS_ONLY: 'nus_only',   // 仅显示注册了 NUS 服务的设备（严格过滤）
+  BY_NAME: 'by_name',     // 按设备名前缀过滤
+  ALL: 'all',             // 显示所有 BLE 设备（acceptAllDevices）
+});
 
 const BluetoothController = {
   // 内部状态
@@ -35,23 +44,42 @@ const BluetoothController = {
   },
 
   /**
-   * 弹出设备选择器（必须由用户手势触发）
+   * 选择并连接设备
+   * 必须由用户手势触发（通过 UI 层的 Modal "开始扫描"按钮调用）
+   *
+   * @param {Object} options
+   * @param {string} options.mode - ScanMode 枚举值
+   * @param {string} [options.namePrefix] - BY_NAME 模式下的名称前缀
    * @returns {Promise<void>}
    */
-  async pickAndConnect() {
+  async pickAndConnect(options = {}) {
     if (!this.isSupported()) {
       this._notifyError('浏览器不支持 Web Bluetooth API。请用 Chrome 56+ 或 Edge 79+，且在 HTTPS 或 localhost 环境。');
       return;
+    }
+
+    const mode = options.mode || ScanMode.NUS_ONLY;
+    const namePrefix = (options.namePrefix || '').trim();
+
+    // 构造 requestDevice 参数
+    const requestOptions = { optionalServices: [NUS_SERVICE_UUID] };
+
+    if (mode === ScanMode.NUS_ONLY) {
+      // 严格过滤：只显示注册了 NUS 服务的设备
+      requestOptions.filters = [{ services: [NUS_SERVICE_UUID] }];
+    } else if (mode === ScanMode.BY_NAME && namePrefix) {
+      // 按名称前缀过滤
+      requestOptions.filters = [{ namePrefix }];
+    } else {
+      // 显示所有 BLE 设备（兜底模式，能看到正在广播的全部设备）
+      requestOptions.acceptAllDevices = true;
     }
 
     this._notifyState('connecting');
 
     try {
       // 1. 用户选择设备（浏览器弹窗，无法绕过）
-      this._device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: [NUS_SERVICE_UUID] }],
-        optionalServices: [NUS_SERVICE_UUID],
-      });
+      this._device = await navigator.bluetooth.requestDevice(requestOptions);
 
       // 2. 监听断开
       this._disconnectListener = () => {
@@ -81,6 +109,9 @@ const BluetoothController = {
         'characteristicvaluechanged',
         (event) => this._handleNotification(event)
       );
+
+      // 7. 保存到最近设备列表
+      this._saveRecent(this._device);
 
       this._notifyState('connected');
     } catch (err) {
@@ -131,6 +162,42 @@ const BluetoothController = {
     return !!(this._device && this._device.gatt.connected);
   },
 
+  /**
+   * 获取当前设备信息（供 UI 显示）
+   * @returns {{id:string,name:string}|null}
+   */
+  getCurrentDevice() {
+    if (!this._device) return null;
+    return {
+      id: this._device.id || '',
+      name: this._device.name || '(未命名设备)',
+    };
+  },
+
+  /**
+   * 获取最近连接的设备列表（从 localStorage）
+   * @returns {Array<{id:string,name:string,at:number}>}
+   */
+  getRecentDevices() {
+    try {
+      const raw = localStorage.getItem(RECENT_DEVICES_KEY);
+      if (!raw) return [];
+      const list = JSON.parse(raw);
+      return Array.isArray(list) ? list : [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  /**
+   * 清空最近设备列表
+   */
+  clearRecentDevices() {
+    try {
+      localStorage.removeItem(RECENT_DEVICES_KEY);
+    } catch (e) { /* 忽略 */ }
+  },
+
   // ============ 内部方法 ============
 
   _handleNotification(event) {
@@ -143,7 +210,6 @@ const BluetoothController = {
 
   _cleanup() {
     if (this._rxCharacteristic && this._disconnectListener) {
-      // 移除监听器（特征值已失效，忽略异常）
       try {
         this._rxCharacteristic.removeEventListener(
           'characteristicvaluechanged',
@@ -161,6 +227,24 @@ const BluetoothController = {
     // _device 保留以便重连，下次 pickAndConnect 会覆盖
   },
 
+  /**
+   * 保存设备到最近列表（去重 + 限长）
+   */
+  _saveRecent(device) {
+    if (!device || !device.id) return;
+    try {
+      const list = this.getRecentDevices();
+      const filtered = list.filter((d) => d.id !== device.id);
+      filtered.unshift({
+        id: device.id,
+        name: device.name || '(未命名设备)',
+        at: Date.now(),
+      });
+      const top = filtered.slice(0, RECENT_DEVICES_MAX);
+      localStorage.setItem(RECENT_DEVICES_KEY, JSON.stringify(top));
+    } catch (e) { /* localStorage 不可用时静默忽略 */ }
+  },
+
   _notifyState(state) {
     if (this.onStateChanged) this.onStateChanged(state);
   },
@@ -172,4 +256,5 @@ const BluetoothController = {
 
 if (typeof window !== 'undefined') {
   window.BluetoothController = BluetoothController;
+  window.ScanMode = ScanMode;
 }
