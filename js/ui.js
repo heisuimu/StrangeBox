@@ -14,8 +14,7 @@
 
 // 扫描模式提示文案模板（{label} 占位符在 _onModeChange 中用当前 profile.label 替换）
 const MODE_HINTS = {
-  nus_only: '仅显示注册了 {label} 服务的设备。如果列表为空，说明附近没有符合的设备，请改用其他模式。',
-  by_name: '按设备名前缀过滤（不区分大小写）。需要先输入前缀，例如 ESP32、HM-10 等。',
+  by_service: '仅显示注册了 {label} 服务的设备。如果列表为空，说明附近没有符合的设备，请改用"显示所有"模式。',
   all: '显示所有正在广播的 BLE 设备（列表最全）。选中后仍会尝试连接 {label}，若设备无此服务会报错。',
 };
 
@@ -168,7 +167,7 @@ const UI = {
       }
     });
 
-    // 扫描模式切换：更新提示文案 + 控制 namePrefix 输入框
+    // 扫描模式切换：更新提示文案
     this._els.connectModal.querySelectorAll('input[name="scanMode"]').forEach((radio) => {
       radio.addEventListener('change', () => this._onModeChange());
     });
@@ -189,21 +188,12 @@ const UI = {
       BluetoothController.setCurrentProfile(profile);
       BluetoothController.saveProfile(profile);
 
-      // 3. 校验扫描模式
+      // 3. 发起连接
       const mode = this._getSelectedMode();
-      const namePrefix = this._els.namePrefixInput.value.trim();
-
-      if (mode === ScanMode.BY_NAME && !namePrefix) {
-        this._log('⚠ 请输入设备名前缀', 'err');
-        this._els.namePrefixInput.focus();
-        return;
-      }
-
-      // 4. 发起连接
       this._setModalLoading(true);
       this._hideModal();
-      this._log(`● 开始扫描（设备类型: ${profile.label}, 模式: ${mode}${mode === ScanMode.BY_NAME ? `, 前缀: ${namePrefix}` : ''}）`, 'sys');
-      await BluetoothController.pickAndConnect({ mode, namePrefix, serviceProfile: profile });
+      this._log(`● 开始扫描（设备类型: ${profile.label}, 模式: ${mode}）`, 'sys');
+      await BluetoothController.pickAndConnect({ mode, serviceProfile: profile });
       this._setModalLoading(false);
     });
   },
@@ -222,13 +212,11 @@ const UI = {
 
   _getSelectedMode() {
     const checked = this._els.connectModal.querySelector('input[name="scanMode"]:checked');
-    return checked ? checked.value : ScanMode.NUS_ONLY;
+    return checked ? checked.value : ScanMode.BY_SERVICE;
   },
 
   _onModeChange() {
     const mode = this._getSelectedMode();
-    // 控制 namePrefix 输入框启用/禁用
-    this._els.namePrefixInput.disabled = (mode !== ScanMode.BY_NAME);
     // 更新提示文案（用当前 profile.label 替换 {label} 占位符）
     const profile = BluetoothController.getCurrentProfile();
     const label = (profile && profile.label) || '所选服务';
@@ -271,7 +259,7 @@ const UI = {
         const profile = BluetoothController.getCurrentProfile();
         this._hideModal();
         this._log(`● 从最近列表连接: ${dev.name}（类型: ${profile.label}）`, 'sys');
-        await BluetoothController.pickAndConnect({ mode: ScanMode.NUS_ONLY, serviceProfile: profile });
+        await BluetoothController.pickAndConnect({ mode: ScanMode.BY_SERVICE, serviceProfile: profile });
       });
 
       container.appendChild(item);
@@ -472,7 +460,6 @@ const UI = {
       connectModal: document.getElementById('connectModal'),
       modalCancel: document.getElementById('modalCancel'),
       modalConfirm: document.getElementById('modalConfirm'),
-      namePrefixInput: document.getElementById('namePrefixInput'),
       modeHint: document.getElementById('modeHint'),
       recentDevices: document.getElementById('recentDevices'),
       clearRecentBtn: document.getElementById('clearRecentBtn'),

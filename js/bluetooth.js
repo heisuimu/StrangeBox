@@ -7,14 +7,10 @@
  * 浏览器要求：Chrome 56+ / Edge 79+，HTTPS 或 localhost
  */
 
-// Nordic UART Service —— BLE 串口事实标准（保留作为预设引用源）
-const NUS_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
-const NUS_TX_CHARACTERISTIC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // app 写入外设
-const NUS_RX_CHARACTERISTIC_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // 外设通知 app
-
 // HM-10 兼容服务 UUID —— 亿佰特/HC-08/JDY-31 等 BLE 串口模块常用
+//   易加蓝牙模块默认使用此服务，TX/RX 是同一特征值（既可写又可 notify）
 const HM10_SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
-const HM10_CHARACTERISTIC_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb'; // 既可写又可 notify
+const HM10_CHARACTERISTIC_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb';
 
 const CONNECT_TIMEOUT_MS = 10000;
 const RECENT_DEVICES_MAX = 5;
@@ -28,13 +24,6 @@ const SERVICE_PROFILE_STORAGE_KEY = 'andrawapp_service_profile';
 //   tx      —— app 写入外设的特征 UUID
 //   rx      —— 外设 notify 的特征 UUID（HM-10 的 tx/rx 是同一特征）
 const SERVICE_PROFILES = Object.freeze([
-  Object.freeze({
-    id: 'nus',
-    label: 'Nordic UART (NUS)',
-    service: NUS_SERVICE_UUID,
-    tx: NUS_TX_CHARACTERISTIC_UUID,
-    rx: NUS_RX_CHARACTERISTIC_UUID,
-  }),
   Object.freeze({
     id: 'hm10',
     label: 'HM-10 兼容 (0xFFE0/0xFFE1)',
@@ -51,11 +40,10 @@ const SERVICE_PROFILES = Object.freeze([
   }),
 ]);
 
-// 扫描模式枚举（值保持不变以兼容已有 UI；语义已泛化为"按当前 profile.service 过滤"）
+// 扫描模式枚举
 const ScanMode = Object.freeze({
-  NUS_ONLY: 'nus_only',   // 按当前 profile 的 service UUID 过滤（严格）
-  BY_NAME: 'by_name',     // 按设备名前缀过滤
-  ALL: 'all',             // 显示所有 BLE 设备（acceptAllDevices 兜底）
+  BY_SERVICE: 'by_service', // 按当前 profile 的 service UUID 过滤（严格）
+  ALL: 'all',               // 显示所有 BLE 设备（acceptAllDevices 兜底）
 });
 
 const BluetoothController = {
@@ -186,7 +174,6 @@ const BluetoothController = {
    *
    * @param {Object} options
    * @param {string} options.mode - ScanMode 枚举值
-   * @param {string} [options.namePrefix] - BY_NAME 模式下的名称前缀
    * @param {Object} [options.serviceProfile] - ServiceProfile；为空时用当前 _currentProfile
    * @returns {Promise<void>}
    */
@@ -196,8 +183,7 @@ const BluetoothController = {
       return;
     }
 
-    const mode = options.mode || ScanMode.NUS_ONLY;
-    const namePrefix = (options.namePrefix || '').trim();
+    const mode = options.mode || ScanMode.BY_SERVICE;
 
     // 解析 profile：优先用参数传入的，否则用当前内存中的
     const profile = options.serviceProfile || this.getCurrentProfile();
@@ -210,16 +196,13 @@ const BluetoothController = {
     const rxUuid = profile.rx;
 
     // 构造 requestDevice 参数
-    //   注意：optionalServices 必须含 serviceUuid，否则 ALL/BY_NAME 模式下
+    //   注意：optionalServices 必须含 serviceUuid，否则 ALL 模式下
     //   getPrimaryService 会抛 SecurityError
     const requestOptions = { optionalServices: [serviceUuid] };
 
-    if (mode === ScanMode.NUS_ONLY) {
+    if (mode === ScanMode.BY_SERVICE) {
       // 严格过滤：只显示注册了当前 profile.service 的设备
       requestOptions.filters = [{ services: [serviceUuid] }];
-    } else if (mode === ScanMode.BY_NAME && namePrefix) {
-      // 按名称前缀过滤
-      requestOptions.filters = [{ namePrefix }];
     } else {
       // 显示所有 BLE 设备（兜底模式，能看到正在广播的全部设备）
       requestOptions.acceptAllDevices = true;

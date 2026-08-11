@@ -59,7 +59,6 @@
       <div class="modal-section">
         <p class="modal-label">设备类型 / 服务 UUID</p>
         <select id="profileSelect" class="profile-select">
-          <option value="nus">Nordic UART (NUS) — nRF52 / Arduino BLE Serial</option>
           <option value="hm10">HM-10 兼容 (0xFFE0/0xFFE1) — 易加 / HC-08 / JDY-31 / 亿佰特</option>
           <option value="custom">自定义 UUID</option>
         </select>
@@ -83,21 +82,14 @@
       <div class="modal-section">
         <p class="modal-label">扫描模式</p>
         <label class="mode-option">
-          <input type="radio" name="scanMode" value="nus_only" checked>
-          <span>仅 NUS 设备（推荐，过滤严格）</span>
+          <input type="radio" name="scanMode" value="by_service" checked>
+          <span>按服务 UUID 过滤（推荐，列表精准）</span>
         </label>
-        <label class="mode-option">
-          <input type="radio" name="scanMode" value="by_name">
-          <span>按名称前缀过滤</span>
-        </label>
-        <input type="text" id="namePrefixInput" class="name-input"
-               placeholder="设备名前缀（如 ESP32）" disabled
-               maxlength="32" autocomplete="off">
         <label class="mode-option">
           <input type="radio" name="scanMode" value="all">
           <span>显示所有 BLE 设备（兜底，列表最全）</span>
         </label>
-        <p class="mode-hint" id="modeHint">仅显示注册了 Nordic UART Service 的设备。如果列表为空，请改用其他模式。</p>
+        <p class="mode-hint" id="modeHint">仅显示注册了当前服务 UUID 的设备。如果列表为空，请改用"显示所有"模式。</p>
       </div>
 
       <!-- 最近连接 -->
@@ -114,11 +106,6 @@
           <button id="modalCancel" class="btn-secondary" type="button">取消</button>
           <button id="modalConfirm" class="btn-primary" type="button">开始扫描</button>
         </div>
-
-        <p class="mode-hint" style="margin-top:12px;">
-          点击"开始扫描"后，浏览器将弹出原生蓝牙设备选择器，列表中会显示附近所有可发现的 BLE 设备。
-          选中设备后点击"连接"即可。
-        </p>
     </div>
   </div>
 
