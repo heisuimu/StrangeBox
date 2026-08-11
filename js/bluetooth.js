@@ -117,9 +117,16 @@ const BluetoothController = {
     } catch (err) {
       this._cleanup();
       this._notifyState('disconnected');
+
       // 用户取消选择器不算错误
-      if (err.name !== 'NotFoundError') {
-        this._notifyError(`连接失败: ${err.message}`);
+      if (err.name === 'NotFoundError') return;
+
+      // 设备不在 ALL 模式下无 NUS 服务 —— 给专门提示
+      const msg = err.message || String(err);
+      if (mode === ScanMode.ALL && (msg.includes('service') || msg.includes('Service') || msg.includes('NUS') || msg.includes('characteristic'))) {
+        this._notifyError(`该设备不支持 Nordic UART Service (NUS)，无法进行串口通信。请使用"仅 NUS 设备"模式，或选择其他 BLE 设备。`);
+      } else {
+        this._notifyError(`连接失败: ${msg}`);
       }
     }
   },

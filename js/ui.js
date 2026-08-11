@@ -134,20 +134,19 @@ const UI = {
     this._els.statusText.textContent = info.text;
 
     if (state === 'connected') {
-      this._els.btnConnect.textContent = '断开';
-      this._els.btnConnect.dataset.action = 'disconnect';
+      this._setConnectingButton(false);
       this._setButtonsEnabled(true);
       this._renderDeviceInfo();
+    } else if (state === 'connecting') {
+      this._setConnectingButton(true);
     } else {
-      this._els.btnConnect.textContent = '连接设备';
-      this._els.btnConnect.dataset.action = 'connect';
+      // disconnected
+      this._setConnectingButton(false);
       this._setButtonsEnabled(false);
       // 断开时隐藏设备信息卡片
       this._els.deviceInfo.style.display = 'none';
       // 断开时主动发本地 stop 日志（防丢失）
-      if (state === 'disconnected') {
-        this._log('● 本地记录: stop (断连兜底)', 'sys');
-      }
+      this._log('● 本地记录: stop (断连兜底)', 'sys');
     }
   },
 
@@ -189,9 +188,12 @@ const UI = {
         return;
       }
 
+      // 设置连接中状态
+      this._setModalLoading(true);
       this._hideModal();
       this._log(`● 开始扫描（模式: ${mode}${mode === ScanMode.BY_NAME ? `, 前缀: ${namePrefix}` : ''}）`, 'sys');
       await BluetoothController.pickAndConnect({ mode, namePrefix });
+      this._setModalLoading(false);
     });
   },
 
@@ -294,6 +296,37 @@ const UI = {
     ['btnOpen', 'btnClose', 'btnStop', 'btnOpening', 'btnClosing'].forEach((k) => {
       this._els[k].disabled = !enabled;
     });
+  },
+
+  _setModalLoading(loading) {
+    const btn = this._els.modalConfirm;
+    if (loading) {
+      btn.disabled = true;
+      btn.textContent = '连接中…';
+      btn.style.opacity = '0.7';
+    } else {
+      btn.disabled = false;
+      btn.textContent = '开始扫描';
+      btn.style.opacity = '';
+    }
+  },
+
+  _setConnectingButton(connecting) {
+    const btn = this._els.btnConnect;
+    if (connecting) {
+      btn.disabled = true;
+      btn.textContent = '连接中…';
+    } else {
+      // 根据当前连接状态恢复
+      if (BluetoothController.isConnected()) {
+        btn.textContent = '断开';
+        btn.dataset.action = 'disconnect';
+      } else {
+        btn.textContent = '连接设备';
+        btn.dataset.action = 'connect';
+        btn.disabled = false;
+      }
+    }
   },
 
   _log(text, type = 'sys') {
