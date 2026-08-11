@@ -7,20 +7,55 @@
  * 浏览器要求：Chrome 56+ / Edge 79+，HTTPS 或 localhost
  */
 
-// Nordic UART Service —— BLE 串口事实标准
+// Nordic UART Service —— BLE 串口事实标准（保留作为预设引用源）
 const NUS_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 const NUS_TX_CHARACTERISTIC_UUID = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // app 写入外设
 const NUS_RX_CHARACTERISTIC_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // 外设通知 app
 
+// HM-10 兼容服务 UUID —— 亿佰特/HC-08/JDY-31 等 BLE 串口模块常用
+const HM10_SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
+const HM10_CHARACTERISTIC_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb'; // 既可写又可 notify
+
 const CONNECT_TIMEOUT_MS = 10000;
 const RECENT_DEVICES_MAX = 5;
 const RECENT_DEVICES_KEY = 'andrawapp_recent_devices';
+const SERVICE_PROFILE_STORAGE_KEY = 'andrawapp_service_profile';
 
-// 扫描模式枚举
+// 服务预设表：UI 通过 getPresetProfiles() 读取，避免在 ui.js 出现 UUID 字面量
+//   id      —— 与 <option value="..."> 对应
+//   label   —— UI 显示名
+//   service —— GATT Primary Service UUID（128-bit 小写规范）
+//   tx      —— app 写入外设的特征 UUID
+//   rx      —— 外设 notify 的特征 UUID（HM-10 的 tx/rx 是同一特征）
+const SERVICE_PROFILES = Object.freeze([
+  Object.freeze({
+    id: 'nus',
+    label: 'Nordic UART (NUS)',
+    service: NUS_SERVICE_UUID,
+    tx: NUS_TX_CHARACTERISTIC_UUID,
+    rx: NUS_RX_CHARACTERISTIC_UUID,
+  }),
+  Object.freeze({
+    id: 'hm10',
+    label: 'HM-10 兼容 (0xFFE0/0xFFE1)',
+    service: HM10_SERVICE_UUID,
+    tx: HM10_CHARACTERISTIC_UUID,
+    rx: HM10_CHARACTERISTIC_UUID,
+  }),
+  Object.freeze({
+    id: 'custom',
+    label: '自定义 UUID',
+    service: '',
+    tx: '',
+    rx: '',
+  }),
+]);
+
+// 扫描模式枚举（值保持不变以兼容已有 UI；语义已泛化为"按当前 profile.service 过滤"）
 const ScanMode = Object.freeze({
-  NUS_ONLY: 'nus_only',   // 仅显示注册了 NUS 服务的设备（严格过滤）
+  NUS_ONLY: 'nus_only',   // 按当前 profile 的 service UUID 过滤（严格）
   BY_NAME: 'by_name',     // 按设备名前缀过滤
-  ALL: 'all',             // 显示所有 BLE 设备（acceptAllDevices）
+  ALL: 'all',             // 显示所有 BLE 设备（acceptAllDevices 兜底）
 });
 
 const BluetoothController = {
@@ -30,6 +65,7 @@ const BluetoothController = {
   _txCharacteristic: null, // 写
   _rxCharacteristic: null, // 通知
   _disconnectListener: null,
+  _currentProfile: null,   // 当前选中的 ServiceProfile
 
   // 回调（由 UI 层设置）
   onStateChanged: null, // (state: 'disconnected'|'connecting'|'connected') => void
@@ -43,6 +79,107 @@ const BluetoothController = {
     return typeof navigator !== 'undefined' && !!navigator.bluetooth;
   },
 
+  // ============ Service Profile 管理 ============
+
+  /**
+   * 获取所有预设 profile（UI 用于渲染 <option>）
+   * 返回深拷贝避免外部修改常量表
+   */
+  getPresetProfiles() {
+    return SERVICE_PROFILES.map((p) => ({ ...p }));
+  },
+
+  /**
+   * 按 id 查找预设 profile
+   * @returns {Object|null} 找不到返回 null
+   */
+  findProfileById(id) {
+    const found = SERVICE_PROFILES.find((p) => p.id === id);
+    return found ? { ...found } : null;
+  },
+
+  /**
+   * 获取当前 profile；若内存为空则从 localStorage 加载
+   */
+  getCurrentProfile() {
+    if (!this._currentProfile) this.loadProfile();
+    return this._currentProfile;
+  },
+
+  /**
+   * 设置当前 profile（仅内存，不写 storage）
+   */
+  setCurrentProfile(profile) {
+    if (!profile) return;
+    this._currentProfile = { ...profile };
+  },
+
+  /**
+   * 从 localStorage 加载 profile；失败回退到首个预设（NUS）
+   */
+  loadProfile() {
+    try {
+      const raw = localStorage.getItem(SERVICE_PROFILE_STORAGE_KEY);
+      if (!raw) {
+        this._currentProfile = { ...SERVICE_PROFILES[0] };
+        return this._currentProfile;
+      }
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.id === 'custom') {
+        // 自定义 profile：直接用 storage 内容
+        this._currentProfile = { ...parsed };
+      } else if (parsed && parsed.id) {
+        // 预设 profile：始终回查代码表，避免本地副本过期
+        const preset = this.findProfileById(parsed.id) || SERVICE_PROFILES[0];
+        this._currentProfile = { ...preset };
+      } else {
+        this._currentProfile = { ...SERVICE_PROFILES[0] };
+      }
+    } catch (e) {
+      this._currentProfile = { ...SERVICE_PROFILES[0] };
+    }
+    return this._currentProfile;
+  },
+
+  /**
+   * 保存 profile 到 localStorage
+   */
+  saveProfile(profile) {
+    if (!profile) return;
+    try {
+      localStorage.setItem(SERVICE_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+    } catch (e) { /* localStorage 不可用时静默忽略 */ }
+  },
+
+  /**
+   * UUID 规范化：支持 'FFE0' / '0xFFE0' / 'ffe0' / '0000ffe0-...'
+   * 统一输出为 128-bit 小写形式 '0000ffe0-0000-1000-8000-00805f9b34fb'
+   * @param {string} input
+   * @returns {string}
+   */
+  normalizeUuid(input) {
+    if (!input) return '';
+    let s = String(input).trim().toLowerCase();
+    // 去掉 0x 前缀
+    if (s.startsWith('0x')) s = s.slice(2);
+    // 去掉所有连字符
+    s = s.replace(/-/g, '');
+    // 16-bit 短 UUID → 扩展为 128-bit（Bluetooth Base UUID）
+    if (s.length === 4) {
+      return `0000${s}-0000-1000-8000-00805f9b34fb`;
+    }
+    // 32-bit 短 UUID → 扩展
+    if (s.length === 8) {
+      return `${s}-0000-1000-8000-00805f9b34fb`;
+    }
+    // 128-bit：按 8-4-4-4-12 格式重组
+    if (s.length === 32) {
+      return `${s.slice(0,8)}-${s.slice(8,12)}-${s.slice(12,16)}-${s.slice(16,20)}-${s.slice(20,32)}`;
+    }
+    // 其他情况原样返回（让浏览器 API 报错）
+    return input.trim().toLowerCase();
+  },
+
   /**
    * 选择并连接设备
    * 必须由用户手势触发（通过 UI 层的 Modal "开始扫描"按钮调用）
@@ -50,6 +187,7 @@ const BluetoothController = {
    * @param {Object} options
    * @param {string} options.mode - ScanMode 枚举值
    * @param {string} [options.namePrefix] - BY_NAME 模式下的名称前缀
+   * @param {Object} [options.serviceProfile] - ServiceProfile；为空时用当前 _currentProfile
    * @returns {Promise<void>}
    */
   async pickAndConnect(options = {}) {
@@ -61,12 +199,24 @@ const BluetoothController = {
     const mode = options.mode || ScanMode.NUS_ONLY;
     const namePrefix = (options.namePrefix || '').trim();
 
+    // 解析 profile：优先用参数传入的，否则用当前内存中的
+    const profile = options.serviceProfile || this.getCurrentProfile();
+    if (!profile || !profile.service || !profile.tx || !profile.rx) {
+      this._notifyError('未选择有效的设备类型，请先在连接面板选择或填写 Service/TX/RX UUID。');
+      return;
+    }
+    const serviceUuid = profile.service;
+    const txUuid = profile.tx;
+    const rxUuid = profile.rx;
+
     // 构造 requestDevice 参数
-    const requestOptions = { optionalServices: [NUS_SERVICE_UUID] };
+    //   注意：optionalServices 必须含 serviceUuid，否则 ALL/BY_NAME 模式下
+    //   getPrimaryService 会抛 SecurityError
+    const requestOptions = { optionalServices: [serviceUuid] };
 
     if (mode === ScanMode.NUS_ONLY) {
-      // 严格过滤：只显示注册了 NUS 服务的设备
-      requestOptions.filters = [{ services: [NUS_SERVICE_UUID] }];
+      // 严格过滤：只显示注册了当前 profile.service 的设备
+      requestOptions.filters = [{ services: [serviceUuid] }];
     } else if (mode === ScanMode.BY_NAME && namePrefix) {
       // 按名称前缀过滤
       requestOptions.filters = [{ namePrefix }];
@@ -96,12 +246,12 @@ const BluetoothController = {
       );
       this._server = await Promise.race([connectPromise, timeoutPromise]);
 
-      // 4. 获取 NUS 服务
-      const service = await this._server.getPrimaryService(NUS_SERVICE_UUID);
+      // 4. 获取 service（用当前 profile 的 UUID）
+      const service = await this._server.getPrimaryService(serviceUuid);
 
       // 5. 获取 TX/RX 特征值
-      this._txCharacteristic = await service.getCharacteristic(NUS_TX_CHARACTERISTIC_UUID);
-      this._rxCharacteristic = await service.getCharacteristic(NUS_RX_CHARACTERISTIC_UUID);
+      this._txCharacteristic = await service.getCharacteristic(txUuid);
+      this._rxCharacteristic = await service.getCharacteristic(rxUuid);
 
       // 6. 启用 RX 通知
       await this._rxCharacteristic.startNotifications();
@@ -110,8 +260,10 @@ const BluetoothController = {
         (event) => this._handleNotification(event)
       );
 
-      // 7. 保存到最近设备列表
+      // 7. 保存到最近设备列表 + 持久化当前 profile
       this._saveRecent(this._device);
+      this.saveProfile(profile);
+      this._currentProfile = { ...profile };
 
       this._notifyState('connected');
     } catch (err) {
@@ -121,10 +273,11 @@ const BluetoothController = {
       // 用户取消选择器不算错误
       if (err.name === 'NotFoundError') return;
 
-      // 设备不在 ALL 模式下无 NUS 服务 —— 给专门提示
+      // 设备缺少当前 profile 所需的 service/characteristic —— 给专门提示
       const msg = err.message || String(err);
-      if (mode === ScanMode.ALL && (msg.includes('service') || msg.includes('Service') || msg.includes('NUS') || msg.includes('characteristic'))) {
-        this._notifyError(`该设备不支持 Nordic UART Service (NUS)，无法进行串口通信。请使用"仅 NUS 设备"模式，或选择其他 BLE 设备。`);
+      const isServiceError = /service|characteristic/i.test(msg);
+      if (isServiceError) {
+        this._notifyError(`该设备不支持 ${profile.label}（Service=${serviceUuid.slice(0, 8)}…），无法进行串口通信。请改用其他设备类型或扫描模式。`);
       } else {
         this._notifyError(`连接失败: ${msg}`);
       }

@@ -12,11 +12,11 @@
  * 5. 防抖 150ms
  */
 
-// 扫描模式提示文案
+// 扫描模式提示文案模板（{label} 占位符在 _onModeChange 中用当前 profile.label 替换）
 const MODE_HINTS = {
-  nus_only: '仅显示注册了 Nordic UART Service 的设备。如果列表为空，说明附近没有符合的设备，请改用其他模式。',
-  by_name: '按设备名前缀过滤（不区分大小写）。需要先输入前缀，例如 ESP32、Nordic 等。',
-  all: '显示所有正在广播的 BLE 设备（列表最全）。选中后仍会尝试连接 NUS 服务，若设备无此服务会报错。',
+  nus_only: '仅显示注册了 {label} 服务的设备。如果列表为空，说明附近没有符合的设备，请改用其他模式。',
+  by_name: '按设备名前缀过滤（不区分大小写）。需要先输入前缀，例如 ESP32、HM-10 等。',
+  all: '显示所有正在广播的 BLE 设备（列表最全）。选中后仍会尝试连接 {label}，若设备无此服务会报错。',
 };
 
 const UI = {
@@ -36,6 +36,8 @@ const UI = {
     this._bindVisibilitySafety();
     this._bindBluetoothCallbacks();
     this._bindModal();
+    this._bindProfileSelector();
+    this._loadProfileIntoUI();
     this._setButtonsEnabled(false); // 未连接前禁用
   },
 
@@ -179,6 +181,15 @@ const UI = {
 
     // 开始扫描
     this._els.modalConfirm.addEventListener('click', async () => {
+      // 1. 收集并校验 profile
+      const profile = this._collectProfileFromUI();
+      if (!profile) return; // 校验失败已在内部 _log
+
+      // 2. 持久化 profile
+      BluetoothController.setCurrentProfile(profile);
+      BluetoothController.saveProfile(profile);
+
+      // 3. 校验扫描模式
       const mode = this._getSelectedMode();
       const namePrefix = this._els.namePrefixInput.value.trim();
 
@@ -188,11 +199,11 @@ const UI = {
         return;
       }
 
-      // 设置连接中状态
+      // 4. 发起连接
       this._setModalLoading(true);
       this._hideModal();
-      this._log(`● 开始扫描（模式: ${mode}${mode === ScanMode.BY_NAME ? `, 前缀: ${namePrefix}` : ''}）`, 'sys');
-      await BluetoothController.pickAndConnect({ mode, namePrefix });
+      this._log(`● 开始扫描（设备类型: ${profile.label}, 模式: ${mode}${mode === ScanMode.BY_NAME ? `, 前缀: ${namePrefix}` : ''}）`, 'sys');
+      await BluetoothController.pickAndConnect({ mode, namePrefix, serviceProfile: profile });
       this._setModalLoading(false);
     });
   },
@@ -218,8 +229,11 @@ const UI = {
     const mode = this._getSelectedMode();
     // 控制 namePrefix 输入框启用/禁用
     this._els.namePrefixInput.disabled = (mode !== ScanMode.BY_NAME);
-    // 更新提示文案
-    this._els.modeHint.textContent = MODE_HINTS[mode] || '';
+    // 更新提示文案（用当前 profile.label 替换 {label} 占位符）
+    const profile = BluetoothController.getCurrentProfile();
+    const label = (profile && profile.label) || '所选服务';
+    const template = MODE_HINTS[mode] || '';
+    this._els.modeHint.textContent = template.replace(/\{label\}/g, label);
   },
 
   _renderRecentDevices() {
@@ -251,12 +265,13 @@ const UI = {
       item.appendChild(nameSpan);
       item.appendChild(timeSpan);
 
-      // 点击最近设备：关闭 Modal 并以 NUS 模式发起连接
+      // 点击最近设备：关闭 Modal 并用当前 profile 发起连接
       // （浏览器限制：仍会弹原生选择器，但已记忆设备便于用户重选）
       item.addEventListener('click', async () => {
+        const profile = BluetoothController.getCurrentProfile();
         this._hideModal();
-        this._log(`● 从最近列表连接: ${dev.name}`, 'sys');
-        await BluetoothController.pickAndConnect({ mode: ScanMode.NUS_ONLY });
+        this._log(`● 从最近列表连接: ${dev.name}（类型: ${profile.label}）`, 'sys');
+        await BluetoothController.pickAndConnect({ mode: ScanMode.NUS_ONLY, serviceProfile: profile });
       });
 
       container.appendChild(item);
@@ -272,6 +287,99 @@ const UI = {
       return `今天 ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
     }
     return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+  },
+
+  // ============ 设备类型（ServiceProfile）管理 ============
+
+  _bindProfileSelector() {
+    // select 切换：显示/隐藏自定义 UUID 输入框，更新 hint
+    this._els.profileSelect.addEventListener('change', () => this._onProfileChange());
+
+    // 自定义 UUID 输入框失焦时规范化
+    [this._els.customServiceInput, this._els.customTxInput, this._els.customRxInput].forEach((inp) => {
+      inp.addEventListener('blur', () => {
+        if (inp.value.trim()) {
+          inp.value = BluetoothController.normalizeUuid(inp.value);
+        }
+      });
+    });
+  },
+
+  /**
+   * 从 localStorage 加载 profile 回填到 UI
+   */
+  _loadProfileIntoUI() {
+    const profile = BluetoothController.loadProfile();
+    if (!profile) return;
+
+    this._els.profileSelect.value = profile.id;
+
+    if (profile.id === 'custom') {
+      this._els.customProfileFields.style.display = 'block';
+      this._els.customServiceInput.value = profile.service || '';
+      this._els.customTxInput.value = profile.tx || '';
+      this._els.customRxInput.value = profile.rx || '';
+    } else {
+      this._els.customProfileFields.style.display = 'none';
+    }
+
+    this._onProfileChange();
+  },
+
+  /**
+   * select 切换时的 UI 更新
+   */
+  _onProfileChange() {
+    const id = this._els.profileSelect.value;
+    if (id === 'custom') {
+      this._els.customProfileFields.style.display = 'block';
+      this._els.profileHint.textContent = '手动输入 Service / TX / RX UUID（支持 16-bit 短串如 FFE0，自动扩展为 128-bit）';
+      // 同步内存中的 profile，让扫描模式 hint 能显示
+      const current = this._collectProfileFromUI(true);
+      if (current) BluetoothController.setCurrentProfile(current);
+    } else {
+      this._els.customProfileFields.style.display = 'none';
+      const preset = BluetoothController.findProfileById(id);
+      if (preset) {
+        this._els.profileHint.textContent = `${preset.label}：Service=${preset.service.slice(0, 13)}…`;
+        BluetoothController.setCurrentProfile(preset);
+      }
+    }
+    // 同步刷新扫描模式 hint（因为 {label} 占位符依赖当前 profile）
+    this._onModeChange();
+  },
+
+  /**
+   * 从 UI 收集 profile（用于点击"开始扫描"时）
+   * @param {boolean} silent - true 时不输出错误日志（用于 UI 切换时的临时同步）
+   * @returns {Object|null} 校验失败返回 null
+   */
+  _collectProfileFromUI(silent = false) {
+    const id = this._els.profileSelect.value;
+
+    if (id === 'custom') {
+      const service = this._els.customServiceInput.value.trim();
+      const tx = this._els.customTxInput.value.trim();
+      const rx = this._els.customRxInput.value.trim();
+      if (!service || !tx || !rx) {
+        if (!silent) this._log('⚠ 自定义 UUID 需填写完整（Service / TX / RX 三项）', 'err');
+        return null;
+      }
+      return {
+        id: 'custom',
+        label: '自定义 UUID',
+        service: BluetoothController.normalizeUuid(service),
+        tx: BluetoothController.normalizeUuid(tx),
+        rx: BluetoothController.normalizeUuid(rx),
+      };
+    }
+
+    const preset = BluetoothController.findProfileById(id);
+    if (!preset) {
+      if (!silent) this._log('⚠ 未知的设备类型，请重新选择', 'err');
+      return null;
+    }
+    return preset;
   },
 
   // ============ 设备信息卡片 ============
@@ -368,6 +476,13 @@ const UI = {
       modeHint: document.getElementById('modeHint'),
       recentDevices: document.getElementById('recentDevices'),
       clearRecentBtn: document.getElementById('clearRecentBtn'),
+      // Profile 选择
+      profileSelect: document.getElementById('profileSelect'),
+      customProfileFields: document.getElementById('customProfileFields'),
+      customServiceInput: document.getElementById('customServiceInput'),
+      customTxInput: document.getElementById('customTxInput'),
+      customRxInput: document.getElementById('customRxInput'),
+      profileHint: document.getElementById('profileHint'),
     };
   },
 };
